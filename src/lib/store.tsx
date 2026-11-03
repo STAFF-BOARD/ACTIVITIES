@@ -241,6 +241,8 @@ interface AppContextValue extends StoredState {
   cancelSlot: (taskId: string) => Promise<string | void>;
   /** Renuncia al tiempo de espera: deja la inscripción firme al instante. */
   confirmSlot: (taskId: string) => Promise<string | void>;
+  /** Solo administración: quita la inscripción propia o la de alguien que no sea administrador. */
+  quitarInscripcion: (taskId: string, userId: string) => Promise<string | void>;
   joinWaitlist: (taskId: string) => Promise<string | void>;
   leaveWaitlist: (taskId: string) => Promise<string | void>;
   hasEvidence: (task: EventTask) => boolean;
@@ -970,6 +972,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : error.message;
     }
   }, []);
+
+  const quitarInscripcion: AppContextValue["quitarInscripcion"] = useCallback(
+    async (taskId, userId) => {
+      if (!supabase) return "Supabase no está configurado";
+      const t = stateRef.current.tasks.find((x) => x.id === taskId);
+      const { error } = await supabase.rpc("quitar_inscripcion", { p_task_id: taskId, p_user_id: userId });
+      if (error) {
+        return error.message.toLowerCase().includes("does not exist")
+          ? "Falta aplicar el SQL 'QUITAR-INSCRIPCION' en Supabase."
+          : error.message;
+      }
+
+      // Al organizador y al líder les avisamos igual que cuando alguien cancela.
+      const ev = stateRef.current.events.find((e) => e.id === t?.eventId);
+      const avisar = [ev?.createdBy, t?.leaderId].filter((x): x is string => !!x && x !== userId);
+      if (t && avisar.length > 0) {
+        const quien = userId === stateRef.current.currentUserId
+          ? `${currentUser?.name ?? "Un administrador"} canceló su inscripción`
+          : `${currentUser?.name ?? "Un administrador"} quitó a ${stateRef.current.users.find((u) => u.id === userId)?.name ?? "un colaborador"}`;
+        await notify("Se liberó un lugar", `${quien} en ${t.name}`, avisar, false, `/eventos/${t.eventId}`);
+      }
+    },
+    [notify, currentUser]
+  );
 
   const joinWaitlist: AppContextValue["joinWaitlist"] = useCallback(async (taskId) => {
     if (!supabase) return "Supabase no está configurado";
@@ -1806,6 +1832,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     claimSlot,
     cancelSlot,
     confirmSlot,
+    quitarInscripcion,
     joinWaitlist,
     leaveWaitlist,
     hasEvidence,
