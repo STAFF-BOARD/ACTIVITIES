@@ -11,7 +11,7 @@ import { cancelRemainingSeconds, canStillCancel, isTaskFull, slotProgress } from
 import { Avatar } from "@/components/ui/avatar";
 import { ProgressBar } from "@/components/ui/progress";
 import { ExecStatusPill, PriorityPill } from "@/components/ui/pills";
-import { Paperclip, ImagePlus, Send, Crown, UserPlus, X, FileText, Hourglass, AlertTriangle, Lock, Users, RotateCcw, CheckCircle2, Pencil, AtSign, Trash2 } from "lucide-react";
+import { Paperclip, ImagePlus, Send, Crown, UserPlus, UserMinus, X, FileText, Hourglass, AlertTriangle, Lock, Users, RotateCcw, CheckCircle2, Pencil, AtSign, Trash2 } from "lucide-react";
 import { cx } from "@/lib/utils";
 
 const statusOrder: TaskExecStatus[] = ["sin_iniciar", "en_proceso", "terminada"];
@@ -22,7 +22,7 @@ const statusLabel: Record<TaskExecStatus, string> = {
 };
 
 export function TaskDetailModal({ open, onClose, task }: { open: boolean; onClose: () => void; task: EventTask }) {
-  const { userById, eventById, currentUser, isAdmin, claimSlot, cancelSlot, confirmSlot, joinWaitlist, leaveWaitlist, hasEvidence, canFinishTask, setExecStatus, addChatMessage, refreshTaskChat, toggleReaction, deleteChatMessage, addEvidence, removeEvidence, deleteTask, settings } =
+  const { userById, eventById, currentUser, isAdmin, claimSlot, cancelSlot, confirmSlot, quitarInscripcion, joinWaitlist, leaveWaitlist, hasEvidence, canFinishTask, setExecStatus, addChatMessage, refreshTaskChat, toggleReaction, deleteChatMessage, addEvidence, removeEvidence, deleteTask, settings } =
     useApp();
   const [tab, setTab] = useState<"detalle" | "chat" | "evidencias">("detalle");
   const [message, setMessage] = useState("");
@@ -129,6 +129,17 @@ export function TaskDetailModal({ open, onClose, task }: { open: boolean; onClos
 
   function handleJoin(idx: number) {
     ejecutar(() => claimSlot(task.id, idx));
+  }
+
+  /** Administración: quitar su propia inscripción o la de alguien que no sea administrador. */
+  function handleQuitar(userId: string) {
+    const propia = userId === currentUser?.id;
+    const nombre = userById(userId)?.name ?? "esta persona";
+    const pregunta = propia
+      ? `¿Cancelar tu inscripción en "${task.name}"?`
+      : `¿Quitar a ${nombre} de "${task.name}"? Se le avisará y su lugar quedará libre.`;
+    if (!window.confirm(pregunta)) return;
+    ejecutar(() => quitarInscripcion(task.id, userId));
   }
 
   async function handleSend(e: React.FormEvent) {
@@ -269,6 +280,8 @@ export function TaskDetailModal({ open, onClose, task }: { open: boolean; onClos
                 const user = slot.userId ? userById(slot.userId) : null;
                 const isMe = slot.userId === currentUser?.id;
                 const remaining = isMe ? cancelRemainingSeconds(slot.claimedAt, settings.cancelWindowMinutes) : 0;
+                // Un administrador puede salir cuando quiera y quitar a quien no sea administrador.
+                const puedeQuitar = !!user && isAdmin && !eventoCerrado && (isMe || user.role !== "admin");
                 return (
                   <div
                     key={idx}
@@ -277,7 +290,7 @@ export function TaskDetailModal({ open, onClose, task }: { open: boolean; onClos
                       user ? "border-ink-100 bg-ink-50/60" : "border-dashed border-ink-200"
                     )}
                   >
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <span className="w-5 text-xs font-semibold text-ink-400">#{idx + 1}</span>
                       {user ? (
                         <>
@@ -313,8 +326,21 @@ export function TaskDetailModal({ open, onClose, task }: { open: boolean; onClos
                             {`${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`}
                           </b>
                         </button>
-                      ) : isMe ? (
-                        <span className="badge bg-brand-100 text-brand-800">Confirmado</span>
+                      ) : isMe || puedeQuitar ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          {isMe && <span className="badge bg-brand-100 text-brand-800">Confirmado</span>}
+                          {puedeQuitar && (
+                            <button
+                              onClick={() => handleQuitar(user.id)}
+                              disabled={subiendo}
+                              title={isMe ? "Cancelar mi inscripción" : `Quitar a ${user.name} de la tarea`}
+                              aria-label={isMe ? "Cancelar mi inscripción" : `Quitar a ${user.name} de la tarea`}
+                              className="flex items-center gap-1 text-xs font-medium text-rose-600 hover:underline disabled:opacity-50"
+                            >
+                              <UserMinus className="h-3.5 w-3.5" /> {isMe ? "Salir" : "Quitar"}
+                            </button>
+                          )}
+                        </div>
                       ) : null
                     ) : (
                       !mySlot && (
